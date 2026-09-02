@@ -1,0 +1,41 @@
+name: IaC quality
+
+on:
+  pull_request:
+    paths:
+      - ".docker/iac/**"
+      - ".github/workflows/iac-quality.yml"
+      - ".tflint.hcl"
+      - "Makefile"
+      - "WireGuardVPN/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".docker/iac/**"
+      - ".github/workflows/iac-quality.yml"
+      - ".tflint.hcl"
+      - "Makefile"
+      - "WireGuardVPN/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iac-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Format, lint, and validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run Docker-based checks
+        run: make check
+

@@ -2,8 +2,9 @@
 
 This Terragrunt/Terraform stack creates a WireGuard server in `us-east-1` on a
 `t4g.nano`, the cheapest generally available EC2 On-Demand instance in that
-region. It uses Amazon Linux 2023 ARM64, an encrypted 8 GiB gp3 volume, a stable
-Elastic IP, and AWS Systems Manager Session Manager instead of exposing SSH.
+region. It uses Amazon Linux 2023 ARM64, an encrypted 8 GiB gp3 volume, an
+automatically assigned public IPv4 address, and AWS Systems Manager Session
+Manager instead of exposing SSH.
 
 ## Project structure
 
@@ -34,6 +35,13 @@ The root configuration generates the AWS provider and an encrypted S3 backend.
 Terragrunt creates the account-specific state bucket when needed and uses native
 S3 state locking. State paths are derived from `path_relative_to_include()`, so
 development and production never share a state file.
+
+Both environment configurations reference the existing
+`subnet-0d76e3f6200d8aa5b`. The stack does not manage the VPC, subnet, internet
+gateway, or routes. The subnet must be in `us-east-1`, route `0.0.0.0/0` through
+an internet gateway, and allow instances to receive public IPv4 addresses.
+Because there is no Elastic IP, the WireGuard endpoint changes if AWS assigns a
+new address after an instance stop/start or replacement.
 
 ## Cost
 

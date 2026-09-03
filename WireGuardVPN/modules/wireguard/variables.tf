@@ -17,16 +17,14 @@ variable "instance_type" {
   default     = "t4g.nano"
 }
 
-variable "vpc_cidr" {
-  description = "CIDR for the dedicated VPC."
+variable "subnet_id" {
+  description = "Existing public subnet in which to launch the WireGuard server."
   type        = string
-  default     = "10.42.0.0/16"
-}
 
-variable "public_subnet_cidr" {
-  description = "CIDR for the WireGuard server's public subnet."
-  type        = string
-  default     = "10.42.0.0/24"
+  validation {
+    condition     = can(regex("^subnet-[0-9a-f]+$", var.subnet_id))
+    error_message = "subnet_id must be a valid AWS subnet ID."
+  }
 }
 
 variable "wireguard_port" {

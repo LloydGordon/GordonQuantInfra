@@ -5,7 +5,7 @@ TERRAGRUNT_VERSION ?= 1.1.4
 TFLINT_VERSION ?= 0.64.0
 IAC_TOOLS_IMAGE ?= gordonquantinfra-iac-tools:local
 DOCKER_PLATFORM ?= linux/amd64
-AWS_ACCOUNT_ID ?= 000000000000
+AWS_ACCOUNT_ID ?= 491117466808
 
 DOCKER_BUILD := docker build \
 	--platform $(DOCKER_PLATFORM) \

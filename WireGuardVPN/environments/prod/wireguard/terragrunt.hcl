@@ -8,10 +8,9 @@ terraform {
 }
 
 inputs = {
-  name               = "wireguard-vpn-prod"
-  instance_type      = "t4g.nano"
-  vpc_cidr           = "10.43.0.0/16"
-  public_subnet_cidr = "10.43.0.0/24"
+  name          = "wireguard-vpn-prod"
+  instance_type = "t4g.nano"
+  subnet_id     = "subnet-0d76e3f6200d8aa5b"
 
   # Generate each client key locally. Only commit public keys here.
   # peers = [
@@ -23,4 +22,3 @@ inputs = {
   # ]
   peers = []
 }
-

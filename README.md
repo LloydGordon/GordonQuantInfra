@@ -6,5 +6,6 @@ Infrastructure quality checks run entirely in Docker:
 make check
 ```
 
-See [WireGuardVPN/README.md](WireGuardVPN/README.md) for deployment and client
-configuration instructions.
+See [WireGuardVPN/README.md](WireGuardVPN/README.md) for deployment and
+[WireGuardVPN/WIREGUARD.md](WireGuardVPN/WIREGUARD.md) for operating and
+troubleshooting the VPN.

@@ -38,8 +38,9 @@ development and production never share a state file.
 
 Both environment configurations reference the existing
 `subnet-0d76e3f6200d8aa5b`. The stack does not manage the VPC, subnet, internet
-gateway, or routes. The subnet must be in `us-east-1`, route `0.0.0.0/0` through
-an internet gateway, and allow instances to receive public IPv4 addresses.
+gateway, or routes. The subnet must be in `us-east-1` and route `0.0.0.0/0`
+through an internet gateway. The EC2 configuration explicitly requests a public
+IPv4 address.
 Because there is no Elastic IP, the WireGuard endpoint changes if AWS assigns a
 new address after an instance stop/start or replacement.
 
@@ -84,9 +85,13 @@ make check
 Generate the client key pair locally. Never commit the private key:
 
 ```bash
+mkdir -p ~/.config/wireguard
 umask 077
-wg genkey | tee client.key | wg pubkey > client.pub
-cat client.pub
+wg genkey \
+  | tee ~/.config/wireguard/client.key \
+  | wg pubkey \
+  > ~/.config/wireguard/client.pub
+cat ~/.config/wireguard/client.pub
 ```
 
 Copy the public key into the example `peers` block for the environment you want
@@ -135,6 +140,9 @@ PersistentKeepalive = 25
 
 Then connect with `wg-quick up wg0` or import the configuration into a WireGuard
 client application.
+
+See [WIREGUARD.md](WIREGUARD.md) for server verification, service management,
+peer operations, health checks, and troubleshooting.
 
 Changing `peers` changes EC2 user data and intentionally replaces the instance,
 which also rotates the server key. Update the server public key on every client

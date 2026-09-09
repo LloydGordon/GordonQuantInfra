@@ -13,12 +13,12 @@ inputs = {
   subnet_id     = "subnet-0d76e3f6200d8aa5b"
 
   # Generate each client key locally. Only commit public keys here.
-  # peers = [
-  #   {
-  #     name        = "laptop"
-  #     public_key  = "REPLACE_WITH_CLIENT_PUBLIC_KEY"
-  #     allowed_ips = ["10.8.0.2/32"]
-  #   }
-  # ]
+  peers = [
+    {
+      name        = "Ubuntu laptop"
+      public_key  = "bxKrwepS7xlDijgB+AAec5diNXN3sA8vy/8gOkK2VWY="
+      allowed_ips = ["10.8.0.2/32"]
+    }
+  ]
   peers = []
 }

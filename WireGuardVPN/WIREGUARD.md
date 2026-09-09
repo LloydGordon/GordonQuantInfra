@@ -78,6 +78,12 @@ sudo wg show
 
 ## Add a client peer
 
+To install:
+
+```
+sudo apt install wireguard-tools
+```
+
 Generate the client key pair on the client device, outside this repository:
 
 ```bash

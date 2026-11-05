@@ -116,6 +116,7 @@ shell using the `ssm_start_session_command` output, then retrieve the public key
 
 ```bash
 terragrunt output -raw ssm_start_session_command
+# And then run this after
 terragrunt output -raw server_public_key_command
 ```
 

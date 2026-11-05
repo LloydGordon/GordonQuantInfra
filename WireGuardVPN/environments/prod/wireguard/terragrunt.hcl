@@ -20,5 +20,4 @@ inputs = {
       allowed_ips = ["10.8.0.2/32"]
     }
   ]
-  peers = []
 }

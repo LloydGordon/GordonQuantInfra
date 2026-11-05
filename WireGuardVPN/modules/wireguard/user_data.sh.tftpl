@@ -2,6 +2,23 @@
 # Bootstraps WireGuard without placing private keys in Terraform state.
 set -euo pipefail
 
+# A t4g.nano has 512 MiB of RAM. DNF can exceed that while loading the
+# Amazon Linux repository metadata, so provide enough swap for provisioning
+# and future package updates.
+if ! swapon --show=NAME --noheadings | grep -qx '/swapfile'; then
+  if [[ ! -f /swapfile ]]; then
+    dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+    chmod 0600 /swapfile
+    mkswap /swapfile
+  fi
+
+  swapon /swapfile
+fi
+
+if ! grep -qE '^/swapfile[[:space:]]' /etc/fstab; then
+  echo '/swapfile none swap defaults 0 0' >>/etc/fstab
+fi
+
 dnf install -y wireguard-tools iptables
 
 cat >/etc/sysctl.d/99-wireguard-forwarding.conf <<'SYSCTL'

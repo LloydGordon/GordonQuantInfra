@@ -113,3 +113,10 @@ resource "aws_instance" "wireguard" {
     aws_iam_role_policy_attachment.ssm,
   ]
 }
+
+resource "aws_eip" "wireguard" {
+  domain   = "vpc"
+  instance = aws_instance.wireguard.id
+
+  tags = local.common_tags
+}

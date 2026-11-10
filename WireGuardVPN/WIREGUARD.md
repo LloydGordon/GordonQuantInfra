@@ -112,8 +112,8 @@ Assign a unique VPN address to every peer. Then run `terragrunt plan` and
 `terragrunt apply` from that environment directory.
 
 Peer changes replace the EC2 instance because peer configuration is installed
-through user data. Replacement generates a new server key and public IPv4
-address, so update both values on every client after applying the change.
+through user data. Replacement generates a new server key, so update that key
+on every client after applying the change. The Elastic IP remains unchanged.
 
 ## Client configuration
 
@@ -122,6 +122,11 @@ Get the current endpoint locally:
 ```bash
 terragrunt output -raw wireguard_endpoint
 ```
+
+The endpoint uses an Elastic IP address, so it remains stable when the EC2
+instance is stopped, started, or replaced. AWS charges for the public IPv4
+address while it is allocated, including when it is not associated with an
+instance.
 
 Create a client configuration such as `~/.config/wireguard/wg0.conf`:
 
@@ -141,12 +146,75 @@ PersistentKeepalive = 25
 `AllowedIPs = 0.0.0.0/0` routes all client IPv4 traffic through the VPN. To use
 the tunnel only for the VPN network, set it to `10.8.0.0/24` instead.
 
+To route only the WireGuard server and a specific private AWS webserver through
+the tunnel, use their `/32` addresses:
+
+```ini
+AllowedIPs = 10.8.0.1/32, 172.31.31.229/32
+```
+
 Start and stop the client:
 
 ```bash
 sudo wg-quick up wg0
 sudo wg show
 sudo wg-quick down wg0
+```
+
+## Use WireGuard with NordVPN on Linux
+
+NordVPN can run at the same time as this WireGuard tunnel. NordVPN's Linux
+firewall blocks private network traffic by default, so exclude the WireGuard
+and AWS destination networks from NordVPN using its allowlist:
+
+```bash
+nordvpn allowlist add subnet 10.8.0.0/24
+nordvpn allowlist add subnet 172.31.31.229/32
+nordvpn settings
+```
+
+An allowlisted destination bypasses the NordVPN tunnel. Traffic to the AWS
+webserver is still encrypted inside the WireGuard tunnel. There is normally no
+need to allowlist the WireGuard server's Elastic IP when `wg show` reports a
+successful handshake.
+
+Connect NordVPN first and then start WireGuard so that WireGuard installs its
+more-specific AWS routes after NordVPN configures the default route:
+
+```bash
+sudo wg-quick down wg0 2>/dev/null || true
+nordvpn disconnect
+nordvpn connect
+sudo wg-quick up wg0
+```
+
+Verify that the private destinations use WireGuard and that both VPNs have a
+recent handshake:
+
+```bash
+ip route get 10.8.0.1
+ip route get 172.31.31.229
+sudo wg show
+```
+
+Both route checks should report `dev wg0`. If NordVPN reconnects and replaces
+the routes, restart `wg0`. If its Kill Switch still blocks allowlisted traffic,
+temporarily disable the Kill Switch to confirm the cause:
+
+```bash
+nordvpn set killswitch off
+nordvpn disconnect
+nordvpn connect
+sudo wg-quick down wg0
+sudo wg-quick up wg0
+```
+
+Re-enable the Kill Switch after testing if required by your security policy.
+To remove the exceptions later:
+
+```bash
+nordvpn allowlist remove subnet 10.8.0.0/24
+nordvpn allowlist remove subnet 172.31.31.229/32
 ```
 
 ## Troubleshooting

@@ -16,7 +16,7 @@ inputs = {
   peers = [
     {
       name        = "Ubuntu laptop"
-      public_key  = "bxKrwepS7xlDijgB+AAec5diNXN3sA8vy/8gOkK2VWY="
+      public_key  = "MZpey1K9K9fhgKi865c8En+0fex+g1+fhd7s5FmZeV0="
       allowed_ips = ["10.8.0.2/32"]
     }
   ]

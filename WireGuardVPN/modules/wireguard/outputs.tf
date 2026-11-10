@@ -15,13 +15,18 @@ output "vpc_id" {
 }
 
 output "public_ip" {
-  description = "Automatically assigned public IPv4 address used as the WireGuard endpoint."
-  value       = aws_instance.wireguard.public_ip
+  description = "Elastic IPv4 address used as the stable WireGuard endpoint."
+  value       = aws_eip.wireguard.public_ip
+}
+
+output "elastic_ip_allocation_id" {
+  description = "Allocation ID of the WireGuard Elastic IP address."
+  value       = aws_eip.wireguard.allocation_id
 }
 
 output "wireguard_endpoint" {
   description = "WireGuard endpoint for client configuration."
-  value       = "${aws_instance.wireguard.public_ip}:${var.wireguard_port}"
+  value       = "${aws_eip.wireguard.public_ip}:${var.wireguard_port}"
 }
 
 output "ssm_start_session_command" {

@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# A t4g.nano has 512 MiB of RAM. Swap prevents DNF and Docker builds from being
+# killed by the kernel when memory usage peaks.
+if ! swapon --show=NAME --noheadings | grep -qx '/swapfile'; then
+  if [[ ! -f /swapfile ]]; then
+    dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+    chmod 0600 /swapfile
+    mkswap /swapfile
+  fi
+
+  swapon /swapfile
+fi
+
+if ! grep -qE '^/swapfile[[:space:]]' /etc/fstab; then
+  echo '/swapfile none swap defaults 0 0' >>/etc/fstab
+fi
+
+dnf install -y docker git curl
+systemctl enable --now docker
+systemctl enable --now amazon-ssm-agent
+
+install -d -m 0750 /opt/gordonquant
+
+cat >/usr/local/sbin/deploy-gordonquant <<'DEPLOY_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+git_tag="$1"
+repository_url="${repository_url}"
+token_parameter_name="${github_token_parameter_name}"
+service_port="${service_port}"
+source_dir=/opt/gordonquant/source
+token_file=/run/gordonquant-github-token
+askpass_file=/run/gordonquant-git-askpass
+
+cleanup() {
+  rm -f "$token_file" "$askpass_file"
+}
+trap cleanup EXIT
+
+aws ssm get-parameter \
+  --name "$token_parameter_name" \
+  --with-decryption \
+  --query Parameter.Value \
+  --output text >"$token_file"
+chmod 0600 "$token_file"
+
+cat >"$askpass_file" <<'ASKPASS'
+#!/usr/bin/env bash
+case "$1" in
+  *Username*) printf '%s\n' 'x-access-token' ;;
+  *Password*) cat /run/gordonquant-github-token ;;
+  *) exit 1 ;;
+esac
+ASKPASS
+chmod 0700 "$askpass_file"
+
+if [[ ! -d "$source_dir/.git" ]]; then
+  install -d -m 0750 "$source_dir"
+  git -C "$source_dir" init
+  git -C "$source_dir" remote add origin "$repository_url"
+else
+  git -C "$source_dir" remote set-url origin "$repository_url"
+fi
+
+GIT_ASKPASS="$askpass_file" GIT_TERMINAL_PROMPT=0 \
+  git -C "$source_dir" fetch --force --depth=1 origin "refs/tags/$git_tag"
+git -C "$source_dir" checkout --force --detach FETCH_HEAD
+git -C "$source_dir" clean -fdx
+
+image_name="gordonquant:$git_tag"
+docker build --pull --label "org.opencontainers.image.version=$git_tag" -t "$image_name" "$source_dir"
+
+previous_image=""
+if docker container inspect gordonquant >/dev/null 2>&1; then
+  previous_image="$(docker container inspect --format '{{.Config.Image}}' gordonquant)"
+  docker rm -f gordonquant
+fi
+
+if ! docker run -d \
+  --name gordonquant \
+  --restart unless-stopped \
+  --publish "$service_port:5000" \
+  "$image_name"; then
+  if [[ -n "$previous_image" ]]; then
+    docker run -d --name gordonquant --restart unless-stopped --publish "$service_port:5000" "$previous_image"
+  fi
+  exit 1
+fi
+
+for attempt in $(seq 1 30); do
+  if curl --fail --silent --show-error "http://127.0.0.1:$service_port/healthz" >/dev/null; then
+    printf '%s\n' "$git_tag" >/opt/gordonquant/deployed-tag
+    exit 0
+  fi
+  sleep 2
+done
+
+docker logs --tail 100 gordonquant
+docker rm -f gordonquant
+
+if [[ -n "$previous_image" ]]; then
+  docker run -d --name gordonquant --restart unless-stopped --publish "$service_port:5000" "$previous_image"
+fi
+
+exit 1
+DEPLOY_SCRIPT
+
+chmod 0750 /usr/local/sbin/deploy-gordonquant

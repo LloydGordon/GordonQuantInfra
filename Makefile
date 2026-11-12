@@ -24,8 +24,10 @@ DOCKER_RUN := docker run --rm \
 	--workdir /workspace \
 	$(IAC_TOOLS_IMAGE)
 
-TF_MODULE := WireGuardVPN/modules/wireguard
-TG_ROOT := /workspace/WireGuardVPN
+WIREGUARD_TF_MODULE := WireGuardVPN/modules/wireguard
+WIREGUARD_TG_ROOT := /workspace/WireGuardVPN
+GORDONQUANT_TF_MODULE := GordonQuant/modules/ec2-service
+GORDONQUANT_TG_ROOT := /workspace/GordonQuant
 
 .PHONY: help docker-build format fmt format-check fmt-check lint validate check clean
 
@@ -41,24 +43,31 @@ docker-build:
 	$(DOCKER_BUILD)
 
 format: docker-build
-	$(DOCKER_RUN) terraform fmt -recursive $(TF_MODULE)
-	$(DOCKER_RUN) terragrunt --working-dir $(TG_ROOT) hcl fmt
+	$(DOCKER_RUN) terraform fmt -recursive $(WIREGUARD_TF_MODULE) $(GORDONQUANT_TF_MODULE)
+	$(DOCKER_RUN) terragrunt --working-dir $(WIREGUARD_TG_ROOT) hcl fmt
+	$(DOCKER_RUN) terragrunt --working-dir $(GORDONQUANT_TG_ROOT) hcl fmt
 
 fmt: format
 
 format-check: docker-build
-	$(DOCKER_RUN) terraform fmt -recursive -check -diff $(TF_MODULE)
-	$(DOCKER_RUN) terragrunt --working-dir $(TG_ROOT) hcl fmt --check --diff
+	$(DOCKER_RUN) terraform fmt -recursive -check -diff $(WIREGUARD_TF_MODULE) $(GORDONQUANT_TF_MODULE)
+	$(DOCKER_RUN) terragrunt --working-dir $(WIREGUARD_TG_ROOT) hcl fmt --check --diff
+	$(DOCKER_RUN) terragrunt --working-dir $(GORDONQUANT_TG_ROOT) hcl fmt --check --diff
 
 fmt-check: format-check
 
 lint: docker-build
-	$(DOCKER_RUN) tflint --config=/workspace/.tflint.hcl --chdir=$(TF_MODULE)
+	$(DOCKER_RUN) tflint --config=/workspace/.tflint.hcl --chdir=$(WIREGUARD_TF_MODULE)
+	$(DOCKER_RUN) tflint --config=/workspace/.tflint.hcl --chdir=$(GORDONQUANT_TF_MODULE)
 
 validate: docker-build
-	$(DOCKER_RUN) terraform -chdir=$(TF_MODULE) init -backend=false -input=false
-	$(DOCKER_RUN) terraform -chdir=$(TF_MODULE) validate
-	$(DOCKER_RUN) terragrunt --working-dir $(TG_ROOT) hcl validate \
+	$(DOCKER_RUN) terraform -chdir=$(WIREGUARD_TF_MODULE) init -backend=false -input=false
+	$(DOCKER_RUN) terraform -chdir=$(WIREGUARD_TF_MODULE) validate
+	$(DOCKER_RUN) terraform -chdir=$(GORDONQUANT_TF_MODULE) init -backend=false -input=false
+	$(DOCKER_RUN) terraform -chdir=$(GORDONQUANT_TF_MODULE) validate
+	$(DOCKER_RUN) terragrunt --working-dir $(WIREGUARD_TG_ROOT) hcl validate \
+		--inputs --strict --tf-path terraform
+	$(DOCKER_RUN) terragrunt --working-dir $(GORDONQUANT_TG_ROOT) hcl validate \
 		--inputs --strict --tf-path terraform
 
 check: format-check lint validate

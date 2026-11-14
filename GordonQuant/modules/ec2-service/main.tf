@@ -150,7 +150,9 @@ resource "aws_ssm_association" "deploy" {
     commands = "cloud-init status --wait && /usr/local/sbin/deploy-gordonquant '${var.git_tag}'"
   }
 
-  wait_for_success_timeout_seconds = 900
+  # A t4g.nano can take more than 15 minutes on its first boot while DNF
+  # installs Docker and container-selinux relabels the filesystem.
+  wait_for_success_timeout_seconds = 1800
 
   depends_on = [aws_instance.service]
 }

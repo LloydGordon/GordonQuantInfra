@@ -128,6 +128,9 @@ sudo docker ps -a
 sudo docker logs --tail 200 gordonquant
 ```
 
+Amazon Linux 2023 includes `curl-minimal`. The bootstrap intentionally keeps
+that package rather than installing the conflicting full `curl` package.
+
 Confirm the configured tag exists remotely and that the SSM parameter contains
 a valid GitHub token with repository Contents read access. A customer-managed
 KMS key also requires `kms:Decrypt` permission on the EC2 role; the default

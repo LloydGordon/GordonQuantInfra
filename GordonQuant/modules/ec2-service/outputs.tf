@@ -1,29 +1,54 @@
+output "vpc_id" {
+  description = "VPC containing the GordonQuant service."
+  value       = data.aws_vpc.existing.id
+}
+
+output "subnet_id" {
+  description = "Subnet containing the GordonQuant service."
+  value       = data.aws_subnet.existing.id
+}
+
+output "service_port" {
+  description = "TCP port exposed by the GordonQuant container."
+  value       = var.service_port
+}
+
 output "instance_id" {
-  description = "EC2 instance ID running GordonQuant."
+  description = "Persistent private EC2 instance running GordonQuant."
   value       = aws_instance.service.id
 }
 
 output "private_ip" {
-  description = "Private VPC address of the GordonQuant service."
+  description = "Private VPC address of the persistent GordonQuant instance."
   value       = aws_instance.service.private_ip
 }
 
 output "service_url" {
-  description = "Private URL to reach through the VPC or WireGuard tunnel."
+  description = "Private GordonQuant URL reachable through the VPC or WireGuard tunnel."
   value       = "http://${aws_instance.service.private_ip}:${var.service_port}"
 }
 
+output "launch_template_id" {
+  description = "Launch Template used by the public ELB stack's Auto Scaling Group."
+  value       = aws_launch_template.service.id
+}
+
+output "launch_template_version" {
+  description = "Latest Launch Template version containing the selected GordonQuant release."
+  value       = aws_launch_template.service.latest_version
+}
+
 output "deployed_git_tag" {
-  description = "Git tag requested by the SSM deployment association."
+  description = "Git tag embedded in the Launch Template bootstrap."
   value       = var.git_tag
 }
 
-output "ssm_start_session_command" {
-  description = "Command for opening an SSM shell on the service instance."
-  value       = "aws ssm start-session --region ${var.aws_region} --target ${aws_instance.service.id}"
+output "ssm_list_instances_command" {
+  description = "Command that lists the persistent and ASG GordonQuant instance IDs for SSM access."
+  value       = "aws ec2 describe-instances --region ${var.aws_region} --filters Name=tag:Name,Values=${var.name} Name=instance-state-name,Values=running --query 'Reservations[].Instances[].InstanceId' --output text"
 }
 
-output "deployment_association_id" {
-  description = "SSM Association ID responsible for deploying the selected tag."
-  value       = aws_ssm_association.deploy.association_id
+output "ssm_start_session_command" {
+  description = "Command for opening an SSM shell on the persistent private instance."
+  value       = "aws ssm start-session --region ${var.aws_region} --target ${aws_instance.service.id}"
 }

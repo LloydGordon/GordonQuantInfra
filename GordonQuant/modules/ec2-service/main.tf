@@ -23,6 +23,7 @@ locals {
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
     github_token_parameter_name = var.github_token_parameter_name
+    git_tag                     = var.git_tag
     repository_url              = var.repository_url
     service_port                = var.service_port
   })
@@ -100,6 +101,67 @@ resource "aws_iam_instance_profile" "service" {
   tags = local.common_tags
 }
 
+resource "aws_launch_template" "service" {
+  name_prefix            = "${var.name}-"
+  description            = "GordonQuant ${var.git_tag} service instances"
+  image_id               = nonsensitive(data.aws_ssm_parameter.al2023_arm64_ami.value)
+  instance_type          = var.instance_type
+  update_default_version = true
+
+  iam_instance_profile {
+    name = aws_iam_instance_profile.service.name
+  }
+
+  network_interfaces {
+    associate_public_ip_address = true
+    delete_on_termination       = true
+    device_index                = 0
+    security_groups             = [aws_security_group.service.id]
+  }
+
+  user_data = base64encode(local.user_data)
+
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+
+    ebs {
+      encrypted             = true
+      volume_type           = "gp3"
+      volume_size           = var.root_volume_size
+      delete_on_termination = true
+    }
+  }
+
+  credit_specification {
+    cpu_credits = "standard"
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags          = local.common_tags
+  }
+
+  tag_specifications {
+    resource_type = "volume"
+    tags          = local.common_tags
+  }
+
+  tags = local.common_tags
+
+  depends_on = [
+    aws_iam_role_policy.github_token,
+    aws_iam_role_policy_attachment.ssm,
+  ]
+}
+
+# This instance is the persistent private GordonQuant service. It deliberately
+# belongs to the service stack so removing the optional public ALB stack does
+# not remove private access through WireGuard or SSM.
 resource "aws_instance" "service" {
   ami                         = nonsensitive(data.aws_ssm_parameter.al2023_arm64_ami.value)
   instance_type               = var.instance_type
@@ -135,24 +197,4 @@ resource "aws_instance" "service" {
     aws_iam_role_policy.github_token,
     aws_iam_role_policy_attachment.ssm,
   ]
-}
-
-resource "aws_ssm_association" "deploy" {
-  name             = "AWS-RunShellScript"
-  association_name = "${var.name}-deploy"
-
-  targets {
-    key    = "tag:Name"
-    values = [var.name]
-  }
-
-  parameters = {
-    commands = "cloud-init status --wait && /usr/local/sbin/deploy-gordonquant '${var.git_tag}'"
-  }
-
-  # A t4g.nano can take more than 15 minutes on its first boot while DNF
-  # installs Docker and container-selinux relabels the filesystem.
-  wait_for_success_timeout_seconds = 1800
-
-  depends_on = [aws_instance.service]
 }

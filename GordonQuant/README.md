@@ -1,13 +1,16 @@
 # GordonQuant EC2 infrastructure
 
-This Terragrunt stack runs an exact GordonQuant Git tag in Docker on an Amazon
-Linux 2023 ARM64 EC2 instance. The selected release is fetched from the private
-GitHub repository by an SSM Association, built locally, health checked through
-`/healthz`, and started with Docker's `unless-stopped` restart policy.
+The service stack owns one persistent private Amazon Linux 2023 ARM64 instance
+and a Launch Template. Both deploy an exact GordonQuant Git tag during
+cloud-init. The optional ELB stack creates a public Application Load Balancer
+and a separate two-instance Auto Scaling Group from that template. Each
+instance builds the selected release locally, health checks `/healthz`, and
+runs it with Docker's `unless-stopped` restart policy.
 
-Changing only `git_tag` redeploys the container without replacing EC2. The
-GitHub token is read at deployment time from SSM Parameter Store and is never
-passed to Terraform or stored in Terraform state.
+Changing `git_tag` creates a new Launch Template version. Applying the ELB
+stack then performs a rolling replacement while retaining at least one healthy
+instance. The GitHub token is read at deployment time from SSM Parameter Store
+and is never passed to Terraform or stored in Terraform state.
 
 ## Structure
 
@@ -15,15 +18,22 @@ passed to Terraform or stored in Terraform state.
 GordonQuant/
 ├── root.hcl
 ├── modules/
-│   └── ec2-service/
+│   ├── ec2-service/
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   ├── user_data.sh.tftpl
+│   │   ├── variables.tf
+│   │   └── versions.tf
+│   └── public-alb/
 │       ├── main.tf
 │       ├── outputs.tf
-│       ├── user_data.sh.tftpl
 │       ├── variables.tf
 │       └── versions.tf
 └── environments/
     └── prod/
-        └── service/
+        ├── service/
+        │   └── terragrunt.hcl
+        └── elb/
             └── terragrunt.hcl
 ```
 
@@ -73,14 +83,34 @@ terragrunt plan -out=gordonquant.tfplan
 terragrunt apply gordonquant.tfplan
 ```
 
-After applying, inspect the private endpoint and connect through SSM:
+The service stack creates the persistent private GordonQuant instance. Verify
+its private URL and connect through SSM with:
 
 ```bash
 terragrunt output -raw service_url
-terragrunt output -raw ssm_start_session_command
+$(terragrunt output -raw ssm_start_session_command)
 ```
 
-Run the command returned by the second output, then verify the deployment:
+Create the optional public ALB and its separate two-instance ASG only when a
+public link is needed:
+
+```bash
+cd ../elb
+terragrunt init
+terragrunt plan -out=elb.tfplan
+terragrunt apply elb.tfplan
+terragrunt output -raw public_url
+```
+
+To connect to any GordonQuant instance through SSM, list all instance IDs:
+
+```bash
+cd ../service
+$(terragrunt output -raw ssm_list_instances_command)
+aws ssm start-session --region us-east-1 --target INSTANCE_ID
+```
+
+Then verify the selected instance:
 
 ```bash
 sudo docker ps
@@ -89,36 +119,99 @@ sudo cat /opt/gordonquant/deployed-tag
 curl --fail http://127.0.0.1:5000/healthz
 ```
 
-## Access through WireGuard
+## Optional public load balancer
 
-Port `5000` is allowed only from the VPC CIDR by default. Retrieve the service's
-private IP and add it to the laptop's WireGuard `AllowedIPs`:
+The `prod/elb` stack depends on outputs from `prod/service`. It creates an
+internet-facing Application Load Balancer on port 80 and an Auto Scaling Group
+with `min_size = 2`, `desired_capacity = 2`, and `max_size = 2`. These are two
+additional GordonQuant instances; the persistent private service instance is
+not registered with the ALB and remains owned by `prod/service`. The ASG
+instances are registered on port 5000 and checked at `/healthz`. The EC2
+security group permits traffic only from the VPC CIDR, while the ALB security
+group sends port 5000 traffic only into that VPC. Port 5000 is not opened
+directly to the internet.
+
+The ASG has the fixed name `gordonquant-prod-asg`. It intentionally does not
+use `name_prefix` or `create_before_destroy`; this prevents failed applies from
+leaving multiple uniquely named ASGs running billable duplicate instances.
+
+An Application Load Balancer requires two public subnets in different
+availability zones. Production uses the service subnet in `us-east-1c` and
+`subnet-0d8e8a3398c5de545` in `us-east-1a`.
+
+Apply the service stack first. It creates or updates both the persistent
+private instance and the Launch Template used by the optional public stack:
 
 ```bash
-terragrunt output -raw private_ip
+cd ~/Work/GordonQuantInfra/GordonQuant/environments/prod/service
+terragrunt plan -out=gordonquant-persistent-instance.tfplan
+terragrunt apply gordonquant-persistent-instance.tfplan
 ```
 
-For example, if the output is `172.31.20.10`:
+Then plan and apply the public load balancer separately:
+
+```bash
+cd ../elb
+terragrunt init
+terragrunt plan -out=elb.tfplan
+terragrunt apply elb.tfplan
+terragrunt output -raw public_url
+```
+
+The default `public_ingress_cidrs = ["0.0.0.0/0"]` makes HTTP public. To share
+the application with only specific people, replace it with their public
+`/32` CIDRs before planning. This stack provides HTTP only; add an ACM
+certificate and HTTPS listener before sending credentials or sensitive data.
+
+Destroying `prod/elb` removes the load balancer and both ASG instances. It does
+not remove the persistent private GordonQuant instance owned by `prod/service`,
+so WireGuard and SSM access continue to work. The Launch Template, IAM
+resources, and service security group also remain. While the public stack
+exists, the ALB and its two additional EC2 instances incur cost even when they
+receive little or no traffic.
+
+The resulting EC2 counts are:
+
+- Public ELB stack present: one WireGuard, one persistent GordonQuant, and two
+  GordonQuant ASG instances — four EC2 instances total.
+- Public ELB stack destroyed: one WireGuard and one persistent GordonQuant —
+  two EC2 instances total.
+
+## Access through WireGuard
+
+Port `5000` is allowed only from the VPC CIDR by default. The ASG is reached
+through the public ALB, so WireGuard only routes the persistent private
+GordonQuant instance:
+
+```bash
+cd ~/Work/GordonQuantInfra
+make wireguard-gordonquant-sync
+```
+
+The target reads the service stack's current `private_ip` output. The resulting
+peer routes include the instance-specific address:
 
 ```ini
-AllowedIPs = 10.8.0.1/32, 172.31.20.10/32
+AllowedIPs = 10.8.0.1/32, PERSISTENT_GORDONQUANT_PRIVATE_IP/32
 ```
 
-Restart the client and open `http://172.31.20.10:5000`. Traffic forwarded by
-the WireGuard EC2 instance is NATed to its VPC address, which the service
-security group accepts.
+The target removes the previous managed `/32` and legacy ASG subnet routes,
+creates a timestamped client-config backup, and restarts `wg0`. Run it again
+after the service stack replaces the persistent instance. ASG replacements do
+not require a WireGuard update.
 
 ## Deploy another version
 
-Create and push another tag in GordonQuant, update `git_tag`, then create and
-apply a new Terragrunt plan. The SSM Association fetches and deploys that tag on
-the existing instance. If fetching or building the new release fails, the
-currently running container is left in place. If the new container fails its
-health check, the deployment script attempts to restart the previous image.
+Create and push another tag in GordonQuant and update `git_tag`. Apply the
+service stack to replace the persistent private instance and create a new
+Launch Template version. If the optional public stack exists, apply it next to
+roll the ASG to that version. At least one old ASG instance remains healthy
+during the rolling replacement. If a new instance cannot fetch, build, or pass
+its health check, it never becomes a healthy ALB target.
 
 ## Troubleshooting
 
-If the association fails, connect through SSM and check:
+If an instance fails to become healthy, connect through SSM and check:
 
 ```bash
 sudo cloud-init status --long

@@ -109,3 +109,7 @@ exit 1
 DEPLOY_SCRIPT
 
 chmod 0750 /usr/local/sbin/deploy-gordonquant
+
+# Each Auto Scaling replacement must become healthy without relying on a
+# pre-existing State Manager association discovering the new instance.
+/usr/local/sbin/deploy-gordonquant '${git_tag}'

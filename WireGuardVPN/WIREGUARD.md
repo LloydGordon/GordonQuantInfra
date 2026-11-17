@@ -153,6 +153,37 @@ the tunnel, use their `/32` addresses:
 AllowedIPs = 10.8.0.1/32, 172.31.31.229/32
 ```
 
+### Route the persistent GordonQuant instance
+
+The public ALB handles access to the Auto Scaling Group, so the WireGuard client
+only needs a `/32` route for the persistent GordonQuant instance. After applying
+the service stack, run this from the repository root:
+
+```bash
+make wireguard-gordonquant-sync
+```
+
+The target reads the current `private_ip` output from `prod/service`, removes
+the previous managed `/32` and the legacy ASG subnet routes, adds only the new
+instance `/32`, creates a timestamped backup, and restarts `wg0`. Display the
+route without changing the client configuration with:
+
+```bash
+make wireguard-gordonquant-routes
+```
+
+It uses `/etc/wireguard/wg0.conf` by default. To update the configuration under
+the user's home directory instead:
+
+```bash
+make wireguard-gordonquant-sync \
+  WIREGUARD_CLIENT_CONFIG="$HOME/.config/wireguard/wg0.conf"
+```
+
+The target is idempotent and does not print or change private keys. It
+deliberately stops if the file contains multiple peer sections, because
+choosing which peer to edit would be ambiguous.
+
 Start and stop the client:
 
 ```bash
@@ -168,8 +199,10 @@ firewall blocks private network traffic by default, so exclude the WireGuard
 and AWS destination networks from NordVPN using its allowlist:
 
 ```bash
+GORDONQUANT_PRIVATE_IP="$(terragrunt --working-dir GordonQuant/environments/prod/service output -raw private_ip)"
 nordvpn allowlist add subnet 10.8.0.0/24
 nordvpn allowlist add subnet 172.31.31.229/32
+nordvpn allowlist add subnet "$GORDONQUANT_PRIVATE_IP/32"
 nordvpn settings
 ```
 
@@ -215,6 +248,7 @@ To remove the exceptions later:
 ```bash
 nordvpn allowlist remove subnet 10.8.0.0/24
 nordvpn allowlist remove subnet 172.31.31.229/32
+nordvpn allowlist remove subnet "$GORDONQUANT_PRIVATE_IP/32"
 ```
 
 ## Troubleshooting

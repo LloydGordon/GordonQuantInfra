@@ -10,6 +10,16 @@ variable "name" {
   default     = "gordonquant-public"
 }
 
+variable "domain_name" {
+  description = "Public Route 53 domain to point at the load balancer. The ACM certificate also covers its wildcard subdomains."
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.domain_name)) > 0 && !startswith(var.domain_name, "*.")
+    error_message = "domain_name must be a non-empty apex domain such as gordonquant.app, without a wildcard prefix."
+  }
+}
+
 variable "vpc_id" {
   description = "VPC containing the GordonQuant EC2 instance."
   type        = string
@@ -46,7 +56,7 @@ variable "service_port" {
 }
 
 variable "public_ingress_cidrs" {
-  description = "IPv4 CIDRs allowed to reach the public HTTP listener."
+  description = "IPv4 CIDRs allowed to reach the public HTTP and HTTPS listeners."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 

@@ -91,8 +91,8 @@ terragrunt output -raw service_url
 $(terragrunt output -raw ssm_start_session_command)
 ```
 
-Create the optional public ALB and its separate two-instance ASG only when a
-public link is needed:
+Create the optional public ALB, HTTPS DNS route, and its separate two-instance
+ASG only when a public link is needed:
 
 ```bash
 cd ../elb
@@ -122,14 +122,22 @@ curl --fail http://127.0.0.1:5000/healthz
 ## Optional public load balancer
 
 The `prod/elb` stack depends on outputs from `prod/service`. It creates an
-internet-facing Application Load Balancer on port 80 and an Auto Scaling Group
-with `min_size = 2`, `desired_capacity = 2`, and `max_size = 2`. These are two
+internet-facing Application Load Balancer with HTTPS on port 443 and an Auto
+Scaling Group with `min_size = 2`, `desired_capacity = 2`, and `max_size = 2`. These are two
 additional GordonQuant instances; the persistent private service instance is
 not registered with the ALB and remains owned by `prod/service`. The ASG
 instances are registered on port 5000 and checked at `/healthz`. The EC2
 security group permits traffic only from the VPC CIDR, while the ALB security
 group sends port 5000 traffic only into that VPC. Port 5000 is not opened
 directly to the internet.
+
+The stack looks up the public Route 53 hosted zone for `gordonquant.app`,
+requests an ACM certificate covering both `*.gordonquant.app` and the apex
+`gordonquant.app`, and creates the DNS validation records. It creates an alias
+`A` record from `gordonquant.app` to the ALB. HTTP port 80 redirects to HTTPS;
+the application remains HTTP on port 5000 between the ALB and EC2 instances.
+The certificate must include the apex explicitly because a wildcard certificate
+does not cover `gordonquant.app` itself.
 
 The ASG has the fixed name `gordonquant-prod-asg`. It intentionally does not
 use `name_prefix` or `create_before_destroy`; this prevents failed applies from
@@ -158,10 +166,10 @@ terragrunt apply elb.tfplan
 terragrunt output -raw public_url
 ```
 
-The default `public_ingress_cidrs = ["0.0.0.0/0"]` makes HTTP public. To share
+The default `public_ingress_cidrs = ["0.0.0.0/0"]` makes HTTPS public. To share
 the application with only specific people, replace it with their public
-`/32` CIDRs before planning. This stack provides HTTP only; add an ACM
-certificate and HTTPS listener before sending credentials or sensitive data.
+`/32` CIDRs before planning. Open `https://gordonquant.app` after the apply;
+requests to `http://gordonquant.app` are redirected to HTTPS.
 
 Destroying `prod/elb` removes the load balancer and both ASG instances. It does
 not remove the persistent private GordonQuant instance owned by `prod/service`,

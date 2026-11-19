@@ -21,7 +21,8 @@ dependency "service" {
 }
 
 inputs = {
-  name = "gordonquant-prod"
+  name        = "gordonquant-prod"
+  domain_name = "gordonquant.app"
 
   vpc_id                  = dependency.service.outputs.vpc_id
   launch_template_id      = dependency.service.outputs.launch_template_id

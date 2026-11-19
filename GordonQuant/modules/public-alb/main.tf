@@ -7,6 +7,11 @@ data "aws_vpc" "selected" {
   id = var.vpc_id
 }
 
+data "aws_route53_zone" "selected" {
+  name         = var.domain_name
+  private_zone = false
+}
+
 moved {
   from = aws_lb.this
   to   = aws_lb.public
@@ -21,7 +26,7 @@ locals {
 
 resource "aws_security_group" "alb" {
   name_prefix = "${var.name}-"
-  description = "Public HTTP ingress for GordonQuant"
+  description = "Public HTTPS ingress for GordonQuant"
   vpc_id      = var.vpc_id
 
   tags = local.common_tags
@@ -51,6 +56,17 @@ resource "aws_vpc_security_group_ingress_rule" "public_http" {
   cidr_ipv4         = each.value
   from_port         = 80
   to_port           = 80
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "public_https" {
+  for_each = toset(var.public_ingress_cidrs)
+
+  security_group_id = aws_security_group.alb.id
+  description       = "Public HTTPS"
+  cidr_ipv4         = each.value
+  from_port         = 443
+  to_port           = 443
   ip_protocol       = "tcp"
 }
 
@@ -96,10 +112,75 @@ resource "aws_lb_target_group" "service" {
   tags = local.common_tags
 }
 
+resource "aws_acm_certificate" "public" {
+  domain_name               = "*.${var.domain_name}"
+  subject_alternative_names = [var.domain_name]
+  validation_method         = "DNS"
+
+  tags = local.common_tags
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_route53_record" "certificate_validation" {
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.selected.zone_id
+  name = one([
+    for option in aws_acm_certificate.public.domain_validation_options :
+    option.resource_record_name if option.domain_name == var.domain_name
+  ])
+  type = one([
+    for option in aws_acm_certificate.public.domain_validation_options :
+    option.resource_record_type if option.domain_name == var.domain_name
+  ])
+  ttl = 60
+  records = [one([
+    for option in aws_acm_certificate.public.domain_validation_options :
+    option.resource_record_value if option.domain_name == var.domain_name
+  ])]
+}
+
+resource "aws_acm_certificate_validation" "public" {
+  certificate_arn         = aws_acm_certificate.public.arn
+  validation_record_fqdns = [aws_route53_record.certificate_validation.fqdn]
+}
+
+resource "aws_route53_record" "application" {
+  zone_id = data.aws_route53_zone.selected.zone_id
+  name    = var.domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.public.dns_name
+    zone_id                = aws_lb.public.zone_id
+    evaluate_target_health = true
+  }
+}
+
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.public.arn
   port              = 80
   protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.public.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate_validation.public.certificate_arn
 
   default_action {
     type             = "forward"
@@ -151,5 +232,5 @@ resource "aws_autoscaling_group" "service" {
     }
   }
 
-  depends_on = [aws_lb_listener.http]
+  depends_on = [aws_lb_listener.https]
 }

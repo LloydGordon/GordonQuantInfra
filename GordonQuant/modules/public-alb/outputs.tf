@@ -4,8 +4,18 @@ output "load_balancer_dns_name" {
 }
 
 output "public_url" {
-  description = "Public HTTP URL for GordonQuant."
-  value       = "http://${aws_lb.public.dns_name}"
+  description = "Public HTTPS URL for GordonQuant."
+  value       = "https://${var.domain_name}"
+}
+
+output "domain_name" {
+  description = "Route 53 domain pointing at the Application Load Balancer."
+  value       = aws_route53_record.application.fqdn
+}
+
+output "certificate_arn" {
+  description = "ARN of the validated ACM wildcard certificate attached to the HTTPS listener."
+  value       = aws_acm_certificate_validation.public.certificate_arn
 }
 
 output "load_balancer_arn" {

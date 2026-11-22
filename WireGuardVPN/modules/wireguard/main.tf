@@ -1,5 +1,5 @@
-data "aws_ssm_parameter" "al2023_arm64_ami" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
+data "aws_ssm_parameter" "al2023_minimal_arm64_ami" {
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-arm64"
 }
 
 data "aws_subnet" "existing" {
@@ -78,7 +78,7 @@ resource "aws_iam_instance_profile" "ssm" {
 }
 
 resource "aws_instance" "wireguard" {
-  ami                         = nonsensitive(data.aws_ssm_parameter.al2023_arm64_ami.value)
+  ami                         = nonsensitive(data.aws_ssm_parameter.al2023_minimal_arm64_ami.value)
   instance_type               = var.instance_type
   subnet_id                   = data.aws_subnet.existing.id
   associate_public_ip_address = true

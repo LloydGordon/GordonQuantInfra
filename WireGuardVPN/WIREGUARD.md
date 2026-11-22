@@ -1,8 +1,10 @@
 # WireGuard operations
 
 This guide covers day-to-day operation of the WireGuard server created by this
-repository. The server runs Amazon Linux 2023 and is administered through AWS
-Systems Manager Session Manager; SSH is not exposed.
+repository. The server runs the Amazon Linux 2023 minimal ARM64 AMI and is
+administered through AWS Systems Manager Session Manager; SSH is not exposed.
+The bootstrap installs the SSM agent because it is not bundled with the minimal
+AMI.
 
 ## Connect to the server
 

@@ -2,9 +2,12 @@
 
 This Terragrunt/Terraform stack creates a WireGuard server in `us-east-1` on a
 `t4g.nano`, the cheapest generally available EC2 On-Demand instance in that
-region. It uses Amazon Linux 2023 ARM64, an encrypted 8 GiB gp3 volume, an
-automatically assigned public IPv4 address, and AWS Systems Manager Session
-Manager instead of exposing SSH.
+region. It uses the Amazon Linux 2023 minimal ARM64 AMI, an encrypted 8 GiB gp3
+volume, an Elastic IP, and AWS Systems Manager Session Manager instead of
+exposing SSH.
+
+The minimal AMI does not include the SSM agent, so cloud-init installs
+`amazon-ssm-agent` explicitly before enabling Session Manager.
 
 ## Project structure
 
@@ -40,9 +43,9 @@ Both environment configurations reference the existing
 `subnet-0d76e3f6200d8aa5b`. The stack does not manage the VPC, subnet, internet
 gateway, or routes. The subnet must be in `us-east-1` and route `0.0.0.0/0`
 through an internet gateway. The EC2 configuration explicitly requests a public
-IPv4 address.
-Because there is no Elastic IP, the WireGuard endpoint changes if AWS assigns a
-new address after an instance stop/start or replacement.
+IPv4 address and associates an Elastic IP, so the WireGuard endpoint remains
+stable across an instance replacement. The WireGuard server key is stored on
+the instance and therefore changes when Terraform replaces that instance.
 
 ## Cost
 

@@ -1,5 +1,5 @@
-data "aws_ssm_parameter" "al2023_arm64_ami" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
+data "aws_ssm_parameter" "al2023_minimal_arm64_ami" {
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-arm64"
 }
 
 data "aws_subnet" "existing" {
@@ -104,7 +104,7 @@ resource "aws_iam_instance_profile" "service" {
 resource "aws_launch_template" "service" {
   name_prefix            = "${var.name}-"
   description            = "GordonQuant ${var.git_tag} service instances"
-  image_id               = nonsensitive(data.aws_ssm_parameter.al2023_arm64_ami.value)
+  image_id               = nonsensitive(data.aws_ssm_parameter.al2023_minimal_arm64_ami.value)
   instance_type          = var.instance_type
   update_default_version = true
 
@@ -163,7 +163,7 @@ resource "aws_launch_template" "service" {
 # belongs to the service stack so removing the optional public ALB stack does
 # not remove private access through WireGuard or SSM.
 resource "aws_instance" "service" {
-  ami                         = nonsensitive(data.aws_ssm_parameter.al2023_arm64_ami.value)
+  ami                         = nonsensitive(data.aws_ssm_parameter.al2023_minimal_arm64_ami.value)
   instance_type               = var.instance_type
   subnet_id                   = data.aws_subnet.existing.id
   associate_public_ip_address = true

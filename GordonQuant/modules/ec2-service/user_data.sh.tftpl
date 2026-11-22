@@ -17,7 +17,7 @@ if ! grep -qE '^/swapfile[[:space:]]' /etc/fstab; then
   echo '/swapfile none swap defaults 0 0' >>/etc/fstab
 fi
 
-dnf install -y docker git curl-minimal
+dnf install -y amazon-ssm-agent docker git curl-minimal
 systemctl enable --now docker
 systemctl enable --now amazon-ssm-agent
 

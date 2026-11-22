@@ -1,11 +1,14 @@
 # GordonQuant EC2 infrastructure
 
-The service stack owns one persistent private Amazon Linux 2023 ARM64 instance
+The service stack owns one persistent private Amazon Linux 2023 minimal ARM64 instance
 and a Launch Template. Both deploy an exact GordonQuant Git tag during
 cloud-init. The optional ELB stack creates a public Application Load Balancer
 and a separate two-instance Auto Scaling Group from that template. Each
 instance builds the selected release locally, health checks `/healthz`, and
 runs it with Docker's `unless-stopped` restart policy.
+
+The minimal Amazon Linux image does not include the SSM agent, so cloud-init
+installs `amazon-ssm-agent` explicitly before enabling Session Manager.
 
 Changing `git_tag` creates a new Launch Template version. Applying the ELB
 stack then performs a rolling replacement while retaining at least one healthy

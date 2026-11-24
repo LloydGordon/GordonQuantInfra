@@ -117,6 +117,17 @@ Peer changes replace the EC2 instance because peer configuration is installed
 through user data. Replacement generates a new server key, so update that key
 on every client after applying the change. The Elastic IP remains unchanged.
 
+For the single client configuration managed on this workstation, automate the
+post-apply update from the repository root:
+
+```bash
+make wireguard-post-deploy
+```
+
+This retrieves the new server key through SSM, updates the local peer key and
+GordonQuant route together, synchronizes NordVPN's allowlist, backs up the
+client configuration, and restarts `wg0` once.
+
 ## Client configuration
 
 Get the current endpoint locally:
@@ -167,7 +178,8 @@ make wireguard-gordonquant-sync
 
 The target reads the current `private_ip` output from `prod/service`, removes
 the previous managed `/32` and the legacy ASG subnet routes, adds only the new
-instance `/32`, creates a timestamped backup, and restarts `wg0`. Display the
+instance `/32`, synchronizes NordVPN's `10.8.0.0/24` and instance `/32`
+allowlist entries, creates a timestamped backup, and restarts `wg0`. Display the
 route without changing the client configuration with:
 
 ```bash

@@ -116,6 +116,21 @@ aws ssm start-session --region us-east-1 --target INSTANCE_ID
 Then verify the selected instance:
 
 ```bash
+cd ~/Work/GordonQuantInfra
+make gordonquant-service-check
+```
+
+This waits up to 15 minutes for the persistent instance to register with SSM,
+waits for cloud-init, and checks the SSM agent, Docker service, container logs,
+deployed tag, and `/healthz` endpoint. Open an interactive session separately:
+
+```bash
+make gordonquant-service-session
+```
+
+The equivalent commands inside the instance are:
+
+```bash
 sudo docker ps
 sudo docker logs --tail 100 gordonquant
 sudo cat /opt/gordonquant/deployed-tag

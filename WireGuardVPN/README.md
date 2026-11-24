@@ -111,6 +111,20 @@ terragrunt plan -out=tfplan
 terragrunt apply tfplan
 ```
 
+After every apply that replaces the WireGuard instance, run this from the
+repository root:
+
+```bash
+cd ~/Work/GordonQuantInfra
+make wireguard-post-deploy
+```
+
+The target waits for SSM and cloud-init, retrieves the newly generated server
+public key, updates the single `[Peer]` in `/etc/wireguard/wg0.conf`, refreshes
+the persistent GordonQuant `/32` route, synchronizes NordVPN's allowlist for
+`10.8.0.0/24` and that `/32`, creates a configuration backup, and restarts the
+local `wg0` interface. It does not apply Terraform.
+
 Use `environments/dev/wireguard` instead for development. Deploying both creates
 two complete VPN stacks and roughly doubles the monthly cost.
 
@@ -149,8 +163,8 @@ See [WIREGUARD.md](WIREGUARD.md) for server verification, service management,
 peer operations, health checks, and troubleshooting.
 
 Changing `peers` changes EC2 user data and intentionally replaces the instance,
-which also rotates the server key. Update the server public key on every client
-after such a change.
+which also rotates the server key. Run `make wireguard-post-deploy` after such a
+change.
 
 ## State and teardown
 

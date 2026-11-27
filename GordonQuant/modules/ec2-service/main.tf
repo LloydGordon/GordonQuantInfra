@@ -10,6 +10,11 @@ data "aws_vpc" "existing" {
   id = data.aws_subnet.existing.vpc_id
 }
 
+data "aws_route53_zone" "service" {
+  name         = var.route53_zone_name
+  private_zone = false
+}
+
 data "aws_caller_identity" "current" {}
 
 data "aws_partition" "current" {}
@@ -21,12 +26,32 @@ locals {
 
   github_token_parameter_arn = "arn:${data.aws_partition.current.partition}:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.github_token_parameter_name}"
 
-  user_data = templatefile("${path.module}/user_data.sh.tftpl", {
+  user_data_common = {
     github_token_parameter_name = var.github_token_parameter_name
     git_tag                     = var.git_tag
     repository_url              = var.repository_url
     service_port                = var.service_port
-  })
+  }
+
+  # The public ASG terminates TLS at the ALB, while the persistent private
+  # instance terminates TLS locally with Nginx and Certbot.
+  launch_template_user_data = join("", [chomp(templatefile("${path.module}/user_data.sh.tftpl", merge(local.user_data_common, {
+    certificate_email        = ""
+    dns_wait_timeout_seconds = 0
+    docker_publish_address   = "$service_port:5000"
+    enable_tls               = false
+    health_check_url         = "http://127.0.0.1:$service_port/healthz"
+    tls_domain               = ""
+  }))), "\n"])
+
+  instance_user_data = templatefile("${path.module}/user_data.sh.tftpl", merge(local.user_data_common, {
+    certificate_email        = var.certificate_email
+    dns_wait_timeout_seconds = var.dns_wait_timeout_seconds
+    docker_publish_address   = var.enable_tls ? "127.0.0.1:5000:5000" : "${var.service_port}:5000"
+    enable_tls               = var.enable_tls
+    health_check_url         = var.enable_tls ? "http://127.0.0.1:5000/healthz" : "http://127.0.0.1:${var.service_port}/healthz"
+    tls_domain               = var.route53_record_name
+  }))
 }
 
 resource "aws_security_group" "service" {
@@ -40,6 +65,18 @@ resource "aws_security_group" "service" {
     to_port     = var.service_port
     protocol    = "tcp"
     cidr_blocks = local.service_ingress_cidrs
+  }
+
+  dynamic "ingress" {
+    for_each = var.enable_tls ? [1] : []
+
+    content {
+      description = "GordonQuant HTTPS"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = local.service_ingress_cidrs
+    }
   }
 
   egress {
@@ -94,6 +131,43 @@ resource "aws_iam_role_policy" "github_token" {
   })
 }
 
+resource "aws_iam_role_policy" "certificate_dns" {
+  count = var.enable_tls ? 1 : 0
+
+  name_prefix = "certificate-dns-"
+  role        = aws_iam_role.service.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "DiscoverHostedZone"
+        Effect   = "Allow"
+        Action   = "route53:ListHostedZones"
+        Resource = "*"
+      },
+      {
+        Sid      = "ManageCertificateValidationRecords"
+        Effect   = "Allow"
+        Action   = "route53:ChangeResourceRecordSets"
+        Resource = "arn:${data.aws_partition.current.partition}:route53:::hostedzone/${data.aws_route53_zone.service.zone_id}"
+        Condition = {
+          "ForAllValues:StringEquals" = {
+            "route53:ChangeResourceRecordSetsNormalizedRecordNames" = ["_acme-challenge.${var.route53_record_name}"]
+            "route53:ChangeResourceRecordSetsRecordTypes"           = ["TXT"]
+          }
+        }
+      },
+      {
+        Sid      = "CheckCertificateValidation"
+        Effect   = "Allow"
+        Action   = "route53:GetChange"
+        Resource = "arn:${data.aws_partition.current.partition}:route53:::change/*"
+      },
+    ]
+  })
+}
+
 resource "aws_iam_instance_profile" "service" {
   name_prefix = "${var.name}-"
   role        = aws_iam_role.service.name
@@ -119,7 +193,7 @@ resource "aws_launch_template" "service" {
     security_groups             = [aws_security_group.service.id]
   }
 
-  user_data = base64encode(local.user_data)
+  user_data = base64encode(local.launch_template_user_data)
 
   metadata_options {
     http_endpoint = "enabled"
@@ -155,6 +229,7 @@ resource "aws_launch_template" "service" {
 
   depends_on = [
     aws_iam_role_policy.github_token,
+    aws_iam_role_policy.certificate_dns,
     aws_iam_role_policy_attachment.ssm,
   ]
 }
@@ -170,7 +245,7 @@ resource "aws_instance" "service" {
   vpc_security_group_ids      = [aws_security_group.service.id]
   iam_instance_profile        = aws_iam_instance_profile.service.name
 
-  user_data                   = local.user_data
+  user_data                   = local.instance_user_data
   user_data_replace_on_change = true
 
   metadata_options {
@@ -195,6 +270,15 @@ resource "aws_instance" "service" {
 
   depends_on = [
     aws_iam_role_policy.github_token,
+    aws_iam_role_policy.certificate_dns,
     aws_iam_role_policy_attachment.ssm,
   ]
+}
+
+resource "aws_route53_record" "service" {
+  zone_id = data.aws_route53_zone.service.zone_id
+  name    = var.route53_record_name
+  type    = "A"
+  ttl     = 60
+  records = [aws_instance.service.private_ip]
 }

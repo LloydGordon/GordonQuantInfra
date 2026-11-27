@@ -91,8 +91,28 @@ its private URL and connect through SSM with:
 
 ```bash
 terragrunt output -raw service_url
+terragrunt output -raw service_dns_url
 $(terragrunt output -raw ssm_start_session_command)
 ```
+
+The service stack creates `dev.gordonquant.app` in the public Route 53 hosted
+zone, with an `A` record containing the persistent instance's private VPC
+address. The name is therefore reachable only from the VPC or through
+WireGuard; DNS does not expose the service to the public internet. On the
+persistent instance, Docker binds the application's port 5000 to localhost and
+Nginx proxies standard HTTP and HTTPS traffic to it. Certbot uses a Route 53
+DNS challenge to obtain and automatically renew the certificate, and HTTP is
+redirected to `https://dev.gordonquant.app`.
+
+During first boot, cloud-init polls DNS for up to 15 minutes and does not run
+Certbot until `dev.gordonquant.app` resolves to that instance's private IP.
+This handles the interval between EC2 becoming `running` and Terraform creating
+or updating the Route 53 record. Terraform updates the record automatically
+whenever the persistent instance is replaced.
+
+By default Certbot registers without an email address. To receive Let's Encrypt
+account and expiry notices, set `certificate_email` in
+`environments/prod/service/terragrunt.hcl` before applying.
 
 Create the optional public ALB, HTTPS DNS route, and its separate two-instance
 ASG only when a public link is needed:
@@ -135,6 +155,8 @@ sudo docker ps
 sudo docker logs --tail 100 gordonquant
 sudo cat /opt/gordonquant/deployed-tag
 curl --fail http://127.0.0.1:5000/healthz
+sudo systemctl status nginx certbot-renew.timer --no-pager
+sudo certbot certificates
 ```
 
 ## Optional public load balancer
@@ -144,9 +166,10 @@ internet-facing Application Load Balancer with HTTPS on port 443 and an Auto
 Scaling Group with `min_size = 2`, `desired_capacity = 2`, and `max_size = 2`. These are two
 additional GordonQuant instances; the persistent private service instance is
 not registered with the ALB and remains owned by `prod/service`. The ASG
-instances are registered on port 5000 and checked at `/healthz`. The EC2
-security group permits traffic only from the VPC CIDR, while the ALB security
-group sends port 5000 traffic only into that VPC. Port 5000 is not opened
+instances are registered on the configured service port and checked at
+`/healthz`. The EC2 security group permits traffic only from the VPC CIDR,
+while the ALB security group sends application traffic only into that VPC. The
+container's internal port 5000 is not opened
 directly to the internet.
 
 The stack looks up the public Route 53 hosted zone for `gordonquant.app`,

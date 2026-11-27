@@ -25,7 +25,22 @@ output "private_ip" {
 
 output "service_url" {
   description = "Private GordonQuant URL reachable through the VPC or WireGuard tunnel."
-  value       = "http://${aws_instance.service.private_ip}:${var.service_port}"
+  value       = "http://${aws_instance.service.private_ip}${var.service_port == 80 ? "" : ":${var.service_port}"}"
+}
+
+output "service_dns_name" {
+  description = "DNS name resolving to the persistent service instance's private IP."
+  value       = trimsuffix(aws_route53_record.service.fqdn, ".")
+}
+
+output "service_dns_url" {
+  description = "Private GordonQuant URL using the Route 53 record, reachable through WireGuard or the VPC."
+  value       = var.enable_tls ? "https://${trimsuffix(aws_route53_record.service.fqdn, ".")}" : "http://${trimsuffix(aws_route53_record.service.fqdn, ".")}${var.service_port == 80 ? "" : ":${var.service_port}"}"
+}
+
+output "tls_enabled" {
+  description = "Whether the persistent instance terminates HTTPS locally with Nginx and Certbot."
+  value       = var.enable_tls
 }
 
 output "launch_template_id" {

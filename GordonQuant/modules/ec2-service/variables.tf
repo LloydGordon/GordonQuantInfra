@@ -26,6 +26,54 @@ variable "subnet_id" {
   }
 }
 
+variable "route53_zone_name" {
+  description = "Public Route 53 hosted zone containing the private service record."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$", var.route53_zone_name)) && !endswith(var.route53_zone_name, ".")
+    error_message = "route53_zone_name must be a domain such as gordonquant.app without a trailing dot."
+  }
+}
+
+variable "route53_record_name" {
+  description = "Fully qualified DNS name that resolves to the persistent service instance's private IP."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$", var.route53_record_name)) && !endswith(var.route53_record_name, ".")
+    error_message = "route53_record_name must be a fully qualified domain such as dev.gordonquant.app without a trailing dot."
+  }
+}
+
+variable "enable_tls" {
+  description = "Whether to configure Nginx and a Certbot certificate on the persistent service instance."
+  type        = bool
+  default     = false
+}
+
+variable "certificate_email" {
+  description = "Optional email registered with Let's Encrypt. When empty, Certbot registers without an email address."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.certificate_email == "" || can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", var.certificate_email))
+    error_message = "certificate_email must be empty or a valid email address."
+  }
+}
+
+variable "dns_wait_timeout_seconds" {
+  description = "Maximum time cloud-init waits for the service DNS record to resolve to the new instance before requesting a certificate."
+  type        = number
+  default     = 900
+
+  validation {
+    condition     = var.dns_wait_timeout_seconds >= 60 && var.dns_wait_timeout_seconds <= 3600
+    error_message = "dns_wait_timeout_seconds must be between 60 and 3600."
+  }
+}
+
 variable "repository_url" {
   description = "HTTPS URL of the private GitHub repository."
   type        = string

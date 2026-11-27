@@ -18,6 +18,9 @@ if ! grep -qE '^/swapfile[[:space:]]' /etc/fstab; then
 fi
 
 dnf install -y amazon-ssm-agent docker git curl-minimal
+%{ if enable_tls ~}
+dnf install -y nginx certbot python3-certbot-dns-route53
+%{ endif ~}
 systemctl enable --now docker
 systemctl enable --now amazon-ssm-agent
 
@@ -82,16 +85,16 @@ fi
 if ! docker run -d \
   --name gordonquant \
   --restart unless-stopped \
-  --publish "$service_port:5000" \
+  --publish "${docker_publish_address}" \
   "$image_name"; then
   if [[ -n "$previous_image" ]]; then
-    docker run -d --name gordonquant --restart unless-stopped --publish "$service_port:5000" "$previous_image"
+    docker run -d --name gordonquant --restart unless-stopped --publish "${docker_publish_address}" "$previous_image"
   fi
   exit 1
 fi
 
 for attempt in $(seq 1 30); do
-  if curl --fail --silent --show-error "http://127.0.0.1:$service_port/healthz" >/dev/null; then
+  if curl --fail --silent --show-error "${health_check_url}" >/dev/null; then
     printf '%s\n' "$git_tag" >/opt/gordonquant/deployed-tag
     exit 0
   fi
@@ -102,7 +105,7 @@ docker logs --tail 100 gordonquant
 docker rm -f gordonquant
 
 if [[ -n "$previous_image" ]]; then
-  docker run -d --name gordonquant --restart unless-stopped --publish "$service_port:5000" "$previous_image"
+  docker run -d --name gordonquant --restart unless-stopped --publish "${docker_publish_address}" "$previous_image"
 fi
 
 exit 1
@@ -113,3 +116,110 @@ chmod 0750 /usr/local/sbin/deploy-gordonquant
 # Each Auto Scaling replacement must become healthy without relying on a
 # pre-existing State Manager association discovering the new instance.
 /usr/local/sbin/deploy-gordonquant '${git_tag}'
+
+%{ if enable_tls ~}
+tls_domain='${tls_domain}'
+dns_wait_timeout_seconds='${dns_wait_timeout_seconds}'
+
+# Serve HTTP while Route 53 propagates and Certbot obtains the certificate.
+cat >/etc/nginx/conf.d/gordonquant.conf <<'NGINX_HTTP'
+server {
+    listen 80;
+    server_name ${tls_domain};
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+NGINX_HTTP
+
+nginx -t
+systemctl enable --now nginx
+
+# Terraform creates the Route 53 record after EC2 reaches the running state.
+# Wait until public DNS returns this replacement instance's private address so
+# HTTPS is not configured against a stale record.
+imds_token="$(curl --fail --silent --show-error \
+  --request PUT \
+  --header 'X-aws-ec2-metadata-token-ttl-seconds: 300' \
+  http://169.254.169.254/latest/api/token)"
+private_ip="$(curl --fail --silent --show-error \
+  --header "X-aws-ec2-metadata-token: $imds_token" \
+  http://169.254.169.254/latest/meta-data/local-ipv4)"
+
+dns_points_to_instance() {
+  getent ahostsv4 "$tls_domain" 2>/dev/null | awk '{ print $1 }' | grep --fixed-strings --line-regexp --quiet "$private_ip"
+}
+
+deadline=$((SECONDS + dns_wait_timeout_seconds))
+until dns_points_to_instance; do
+  if (( SECONDS >= deadline )); then
+    echo "Timed out after $dns_wait_timeout_seconds seconds waiting for $tls_domain to resolve to $private_ip" >&2
+    getent ahostsv4 "$tls_domain" >&2 || true
+    exit 1
+  fi
+
+  echo "Waiting for $tls_domain to resolve to $private_ip..."
+  sleep 10
+done
+
+echo "$tls_domain now resolves to $private_ip; requesting certificate."
+
+certbot_args=(
+  certonly
+  --dns-route53
+  --domain "$tls_domain"
+  --non-interactive
+  --agree-tos
+)
+
+%{ if certificate_email != "" ~}
+certbot_args+=(--email '${certificate_email}')
+%{ else ~}
+certbot_args+=(--register-unsafely-without-email)
+%{ endif ~}
+
+certbot "$${certbot_args[@]}"
+
+cat >/etc/nginx/conf.d/gordonquant.conf <<'NGINX_HTTPS'
+server {
+    listen 80;
+    server_name ${tls_domain};
+    return 301 https://${tls_domain}$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name ${tls_domain};
+
+    ssl_certificate /etc/letsencrypt/live/${tls_domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${tls_domain}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+NGINX_HTTPS
+
+install -d -m 0755 /etc/letsencrypt/renewal-hooks/deploy
+cat >/etc/letsencrypt/renewal-hooks/deploy/reload-nginx <<'RENEWAL_HOOK'
+#!/usr/bin/env bash
+set -euo pipefail
+nginx -t
+systemctl reload nginx
+RENEWAL_HOOK
+chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx
+
+nginx -t
+systemctl reload nginx
+systemctl enable --now certbot-renew.timer
+%{ endif ~}
